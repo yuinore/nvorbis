@@ -21,25 +21,32 @@ namespace NVorbis
             internal int RefCount = 1;
         }
 
+        static object _lockObjectLock = new object();
+
         static Dictionary<Stream, StreamWrapper> _lockObjects = new Dictionary<Stream, StreamWrapper>();
 
         internal StreamReadBuffer(Stream source, int initialSize, int maxSize, bool minimalRead)
         {
             StreamWrapper wrapper;
-            if (!_lockObjects.TryGetValue(source, out wrapper))
-            {
-                _lockObjects.Add(source, new StreamWrapper { Source = source });
-                wrapper = _lockObjects[source];
 
-                if (source.CanSeek)
-                {
-                    // assume that this is a quick operation
-                    wrapper.EofOffset = source.Length;
-                }
-            }
-            else
+            // _lockObjects may be accessed from Dispose() method?
+            lock (_lockObjectLock)
             {
-                wrapper.RefCount++;
+                if (!_lockObjects.TryGetValue(source, out wrapper))
+                {
+                    _lockObjects.Add(source, new StreamWrapper { Source = source });
+                    wrapper = _lockObjects[source];
+
+                    if (source.CanSeek)
+                    {
+                        // assume that this is a quick operation
+                        wrapper.EofOffset = source.Length;
+                    }
+                }
+                else
+                {
+                    wrapper.RefCount++;
+                }
             }
 
             // make sure our initial size is a power of 2 (this makes resizing simpler to understand)
@@ -60,7 +67,10 @@ namespace NVorbis
         {
             if (--_wrapper.RefCount == 0)
             {
-                _lockObjects.Remove(_wrapper.Source);
+                lock (_lockObjectLock)
+                {
+                    _lockObjects.Remove(_wrapper.Source);
+                }
             }
         }
 
